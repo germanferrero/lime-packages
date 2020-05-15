@@ -22,6 +22,10 @@ def navigate_to_section(driver, section):
     section_link = menu.find_element_by_link_text(section)
     section_link.click()
 
+def get_element_center(element):
+    center_x = element.location['x'] + element.size['width'] / 2
+    center_y = element.location['y'] + element.size['height'] / 2
+    return (center_x, center_y)
 
 class QemuHandler:
     MONITOR_PORT = 45454
@@ -100,12 +104,57 @@ def disable_css_transitions(browser):
 def wait_until_css_selector(selector):
     WebDriverWait(browser, 10).until(lambda x: browser.find_element_by_css_selector(selector))
 
+def wait_until_xpath_selector(selector):
+    return WebDriverWait(browser, 10).until(lambda x: browser.find_element_by_xpath(selector))
+
+def test_lime_app_map():
+    browser.get(f"http://{NODE_IP}")
+    # Wait for the app to load
+    WebDriverWait(browser, 10).until(EC.title_is("LiMe"))
+    disable_css_transitions(browser)
+    time.sleep(8)  # give some more time to load the multiple requests, TODO wait for some event
+
+    # Close the FirstBootWizard splash
+    fbw_btn_cancel = browser.find_elements_by_tag_name("button")[1]
+    assert fbw_btn_cancel.text == 'CANCEL'
+    fbw_btn_cancel.click()
+
+    navigate_to_section(browser, 'Map')
+    # As this node has not been located yet. A locate my node shows button shows up
+    locate_my_node_btn = wait_until_xpath_selector('//button[text()="locate my node"]')
+    locate_my_node_btn.click()
+    # A location-marker should show up in the middle of the map
+    location_marker = wait_until_xpath_selector('//*[@id="location-marker"]')
+    map_div = browser.find_element_by_id('map-container')
+    map_center_x, map_center_y = get_element_center(map_div)
+    marker_center_x, marker_center_y = get_element_center(location_marker)
+    # ignore rounding issues
+    assert (abs(map_center_x - marker_center_x) <= 1)
+    assert (abs(map_center_y - marker_center_y) <= 1)
+    confirm_location_btn = wait_until_xpath_selector('//button[text()="confirm location"]')
+    confirm_location_btn.click()
+
+    # go out of the map and come back
+    navigate_to_section(browser, "Status")
+    navigate_to_section(browser, "Map")
+
+    # Now it should shows the node in the middle of the screen
+    node_marker = wait_until_xpath_selector('//img[@alt="node marker"]')
+    marker_center_x, marker_center_y = get_element_center(node_marker)
+    assert (abs(map_center_x - marker_center_x) <= 1)
+    # Node marker is shown above node coords
+    marker_bottom = marker_center_y + (node_marker.size['height'] / 2)
+    assert (abs(map_center_y - marker_bottom) <= 1)
+    # Now it shows a button to edit the location
+    wait_until_xpath_selector('//button[text()="edit location"]')
+    # TODO test community view
+
 def test_lime_app_network_administration():
     browser.get(f"http://{NODE_IP}")
     # Wait for the app to load
     WebDriverWait(browser, 10).until(EC.title_is("LiMe"))
     disable_css_transitions(browser)
-    time.sleep(4)  # give some more time to load the multiple requests, TODO wait for some event
+    wait_until_xpath_selector('//button[text()=cancel]')
 
     # Close the FirstBootWizard splash
     fbw_btn_cancel = browser.find_elements_by_tag_name("button")[1]
@@ -170,7 +219,7 @@ def test_lime_app_network_administration():
     login_btn.click()
     assert "Wrong password, try again" not in browser.find_element_by_class_name("container").text
     
-    login_btn.clear()
+    password_input.clear()
     password_input.send_keys("a123456789")
     login_btn.click()
     WebDriverWait(browser, 10).until(lambda x: 'Change Shared Password' in
@@ -178,8 +227,8 @@ def test_lime_app_network_administration():
 
 
 
-rootfs = "/home/san/Downloads/openwrt/bin/targets/x86/64/openwrt-x86-64-generic-rootfs.tar.gz"
-ramfs = "/home/san/Downloads/openwrt/bin/targets/x86/64/openwrt-x86-64-ramfs.bzImage"
+rootfs = "/home/gf/Downloads/librerouteros-v1.2-x86-64-generic-rootfs.tar.gz"
+ramfs = "/home/gf/Downloads/librerouteros-v1.2-x86-64-ramfs.bzImage"
 start_args = f"--libremesh-workdir . {rootfs} {ramfs}"
 qemu = QemuHandler(start_args=start_args)
 qemu.start()
@@ -189,7 +238,8 @@ console.expect("GNU/Linux")
 
 browser = WebdriverHandler.start()
 
-test_lime_app_network_administration()
+# test_lime_app_network_administration()
+test_lime_app_map()
 
 WebdriverHandler.stop()
 qemu.stop()
